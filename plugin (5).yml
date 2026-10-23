@@ -1,0 +1,22 @@
+name: ReverseBoundAlpha
+version: '0.5'
+main: com.reversebound.alpha.ReverseBoundAlpha
+api-version: '1.21.4'
+author: ReverseBound
+load: POSTWORLD
+commands:
+  rbkit:
+    description: Claim a one-time starter kit
+  rbhelp:
+    description: Show alpha gameplay instructions
+  rbhammer:
+    description: Process four custom End Fragments with your Primitive Hammer
+  rbsieve:
+    description: Process four Void Dust held in the main hand
+  rbspawn:
+    description: Teleport to the ReverseBound test cave
+    usage: /rbspawn
+    permission: reversebound.admin
+permissions:
+  reversebound.admin:
+    default: op

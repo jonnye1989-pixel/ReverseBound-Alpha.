@@ -1,0 +1,2 @@
+# Leave false during initial testing so existing players aren't moved automatically.
+send-new-players-to-cave: false
