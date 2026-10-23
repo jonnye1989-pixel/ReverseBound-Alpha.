@@ -28,6 +28,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ShapedRecipe;
+import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.Particle;
 import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.persistence.PersistentDataType;
 import java.util.Random;
@@ -63,7 +65,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         buildStarterCave();
         testWorld.setSpawnLocation(0, CAVE_Y, 0);
         Bukkit.getPluginManager().registerEvents(this, this);
-        getLogger().info("ReverseBound Alpha 0.3 manual sieving ready in reversebound_end.");
+        getLogger().info("ReverseBound Alpha 0.4 resource progression ready in reversebound_end.");
     }
 
     private Location caveSpawn() {
@@ -96,7 +98,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             player.teleport(caveSpawn());
             player.setGameMode(GameMode.SURVIVAL);
             giveStarter(player);
-            player.sendMessage("§5Welcome to ReverseBound Alpha 0.2! §7Use /rbhelp to begin.");
+            player.sendMessage("§5Welcome to ReverseBound Alpha 0.4! §7Use /rbhelp to begin.");
         });
     }
 
@@ -192,6 +194,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             sieveClicks.put(player.getUniqueId(), clicks);
             player.sendActionBar("§dSieving Void Dust: " + clicks + "/4");
             player.getWorld().playSound(block.getLocation(), org.bukkit.Sound.BLOCK_GRAVEL_HIT, 0.6f, 1.2f);
+            player.getWorld().spawnParticle(Particle.CLOUD, block.getLocation().add(0.5, 1, 0.5), 3, 0.15, 0.1, 0.15, 0.01);
             return;
         }
         sieveClicks.remove(player.getUniqueId());
@@ -200,6 +203,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         player.getWorld().dropItemNaturally(block.getLocation().add(0.5, 1.0, 0.5), reward);
         player.sendMessage("§aSieved 4 Void Dust and found " + rewardName(reward) + "§a!");
         player.getWorld().playSound(block.getLocation(), org.bukkit.Sound.BLOCK_GRAVEL_BREAK, 0.7f, 1f);
+        player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, block.getLocation().add(0.5, 1.1, 0.5), 12, 0.25, 0.2, 0.25);
     }
 
     private String rewardName(ItemStack reward) {
@@ -207,15 +211,43 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             ? reward.getItemMeta().getDisplayName() : reward.getType().name();
     }
 
+    private ItemStack resource(Material material, String display, String key, int amount) {
+        ItemStack stack = named(material, display, amount);
+        ItemMeta meta = stack.getItemMeta();
+        meta.getPersistentDataContainer().set(new NamespacedKey(this, key), PersistentDataType.BYTE, (byte) 1);
+        stack.setItemMeta(meta);
+        return stack;
+    }
+
     private ItemStack sieveReward() {
         int roll = rng.nextInt(100);
-        if (roll < 28) return named(Material.IRON_NUGGET, "§7Iron Fragments", 2);
-        if (roll < 50) return named(Material.COPPER_INGOT, "§6Copper Fragments (prototype)", 2);
-        if (roll < 70) return named(Material.BROWN_MUSHROOM, "§aOrganic Spores", 2);
-        if (roll < 85) return named(Material.AMETHYST_SHARD, "§dCrystal Dust", 2);
+        if (roll < 28) return resource(Material.IRON_NUGGET, "§7Iron Fragments", "iron_fragments", 2);
+        if (roll < 50) return resource(Material.COPPER_INGOT, "§6Copper Fragments", "copper_fragments", 2);
+        if (roll < 70) return resource(Material.BROWN_MUSHROOM, "§aOrganic Spores", "organic_spores", 2);
+        if (roll < 85) return resource(Material.AMETHYST_SHARD, "§dCrystal Dust", "crystal_dust", 2);
         if (roll < 95) return new ItemStack(Material.FLINT, 2);
-        if (roll < 99) return named(Material.GOLD_NUGGET, "§6Gold Fragments", 2);
-        return named(Material.ECHO_SHARD, "§5Rift Shard", 1);
+        if (roll < 99) return resource(Material.GOLD_NUGGET, "§6Gold Fragments", "gold_fragments", 2);
+        return resource(Material.ECHO_SHARD, "§5Rift Shard", "rift_shard", 1);
+    }
+
+    private void addConversion(String id, ItemStack input, ItemStack output) {
+        ShapelessRecipe recipe = new ShapelessRecipe(new NamespacedKey(this, id), output);
+        for (int i = 0; i < 4; i++) recipe.addIngredient(new RecipeChoice.ExactChoice(input));
+        Bukkit.addRecipe(recipe);
+    }
+
+    private void registerResourceRecipes() {
+        addConversion("iron_fragments_to_raw_iron", resource(Material.IRON_NUGGET, "§7Iron Fragments", "iron_fragments", 1), new ItemStack(Material.RAW_IRON));
+        addConversion("copper_fragments_to_raw_copper", resource(Material.COPPER_INGOT, "§6Copper Fragments", "copper_fragments", 1), new ItemStack(Material.RAW_COPPER));
+        addConversion("gold_fragments_to_raw_gold", resource(Material.GOLD_NUGGET, "§6Gold Fragments", "gold_fragments", 1), new ItemStack(Material.RAW_GOLD));
+        addConversion("organic_spores_to_fuel", resource(Material.BROWN_MUSHROOM, "§aOrganic Spores", "organic_spores", 1), named(Material.CHARCOAL, "§6Void Briquette", 2));
+        addConversion("crystal_dust_to_crystal", resource(Material.AMETHYST_SHARD, "§dCrystal Dust", "crystal_dust", 1), resource(Material.AMETHYST_SHARD, "§dResonant Crystal", "resonant_crystal", 1));
+        // Backwards compatibility for resource items obtained from Alpha 0.3.
+        addConversion("legacy_iron_to_raw", named(Material.IRON_NUGGET, "§7Iron Fragments", 1), new ItemStack(Material.RAW_IRON));
+        addConversion("legacy_copper_to_raw", named(Material.COPPER_INGOT, "§6Copper Fragments (prototype)", 1), new ItemStack(Material.RAW_COPPER));
+        addConversion("legacy_gold_to_raw", named(Material.GOLD_NUGGET, "§6Gold Fragments", 1), new ItemStack(Material.RAW_GOLD));
+        addConversion("legacy_spores_to_fuel", named(Material.BROWN_MUSHROOM, "§aOrganic Spores", 1), named(Material.CHARCOAL, "§6Void Briquette", 2));
+        addConversion("legacy_crystal_to_crystal", named(Material.AMETHYST_SHARD, "§dCrystal Dust", 1), resource(Material.AMETHYST_SHARD, "§dResonant Crystal", "resonant_crystal", 1));
     }
 
     private void registerRecipes() {
@@ -229,6 +261,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         sieve.setIngredient('F', new RecipeChoice.ExactChoice(fragments(1)));
         sieve.setIngredient('E', Material.END_STONE);
         Bukkit.addRecipe(sieve);
+        registerResourceRecipes();
         // Void Dust is processed using /rbhammer, not generic End Stone Bricks.
     }
 
@@ -252,7 +285,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("rbhelp")) {
-            sender.sendMessage("§5ReverseBound §7Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Hold the Primitive Hammer and use /rbhammer to turn 4 tagged fragments into 2 Void Dust. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. /rbsieve remains a test command.");
+            sender.sendMessage("§5ReverseBound §7Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Hold the Primitive Hammer and use /rbhammer to turn 4 tagged fragments into 2 Void Dust. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. /rbsieve remains a test command.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbkit")) {
