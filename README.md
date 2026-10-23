@@ -1,17 +1,15 @@
-# ReverseBound Alpha 0.2.1 — crafting hotfix
+# ReverseBound Alpha 0.3 — Manual Sieve
 
-For Paper 1.21.4 / Java 21. This is source code, not a compiled JAR. Build using the existing GitHub Actions workflow.
+Paper 1.21.4, Java 21. Includes all Alpha 0.2.1 features.
 
-## Changes
-- Four End Stone blocks in the four corners of a **3x3 crafting table** give four tagged End Fragments. Vanilla 2x2 End Stone Bricks remain untouched.
-- Hold the **Primitive Hammer (prototype)** in your main hand and run `/rbhammer` to convert four custom End Fragments into two tagged Void Dust.
-- Hold at least four tagged Void Dust and run `/rbsieve` to get an early resource roll.
-- Ordinary End Stone Bricks cannot be used as End Fragments.
+## Manual Sieve
 
-## Safe installation
-Stop server, back up worlds and plugins, remove old Alpha 0.2 JAR (keep local copy), upload newly built Alpha 0.2.1 JAR, then start. Do not delete the `reversebound_end` world or player data.
+Craft in a 3x3 table using **one custom End Fragments item in each corner** and **End Stone in the center** (4 fragments total, one in each corner). Place the resulting Manual Sieve (glass prototype) in `reversebound_end`. Hold at least 4 tagged Void Dust and right-click the placed sieve **four times**. Four Void Dust are consumed upon completion, and one reward drops above the sieve. The existing `/rbsieve` command remains available for testing.
 
-## Test
-`/plugins`, `/rbspawn`, craft End Fragments using 3x3 corners, `/rbhammer` holding hammer, `/rbsieve` holding 4 Void Dust. `/rbkit` is one-time; players who already claimed it keep their existing items.
+The plugin records placed sieves in config.yml so they survive restarts. Break a placed sieve to retrieve its custom item. Existing Sieve 0.2.1 plugin can remain installed for testing, but its sieve is separate and will not process ReverseBound Void Dust correctly.
 
-**Known limitations:** Test-only shared world, prototype tools and resource items, no full machine interface, and no survival progression balance yet. Not runtime tested on TickHosting.
+## Build
+
+Upload **contents of this folder to the GitHub repository root**, preserving `.github/workflows/build.yml`; GitHub Actions will upload the `ReverseBound-Alpha-0.3.jar` build artifact. Stop the server, back up the world and old plugin, replace the old ReverseBound JAR (do not run two versions), restart, test.
+
+This source has not been compiled or server-tested in this environment.

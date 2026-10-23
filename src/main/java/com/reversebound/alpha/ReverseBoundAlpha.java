@@ -13,6 +13,17 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.EventPriority;
+import org.bukkit.block.BlockFace;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.NamespacedKey;
@@ -27,10 +38,13 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     private static final int CAVE_Y = 64;
     private NamespacedKey starterKey;
     private final Random rng = new Random();
+    private final Set<String> sieves = new HashSet<>();
+    private final Map<UUID, Integer> sieveClicks = new HashMap<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        sieves.addAll(getConfig().getStringList("placed-sieves"));
         starterKey = new NamespacedKey(this, "starter_received");
         registerRecipes();
         WorldCreator creator = new WorldCreator("reversebound_end");
@@ -49,7 +63,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         buildStarterCave();
         testWorld.setSpawnLocation(0, CAVE_Y, 0);
         Bukkit.getPluginManager().registerEvents(this, this);
-        getLogger().info("ReverseBound Alpha 0.2.1 test cave ready in reversebound_end.");
+        getLogger().info("ReverseBound Alpha 0.3 manual sieving ready in reversebound_end.");
     }
 
     private Location caveSpawn() {
@@ -125,12 +139,96 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
                 stack.getItemMeta().getPersistentDataContainer().has(new NamespacedKey(this, key), PersistentDataType.BYTE);
     }
 
+    private ItemStack sieveItem() {
+        ItemStack item = named(Material.GLASS, "§dManual Sieve", 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(new NamespacedKey(this, "manual_sieve"), PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private String sieveLocation(Block block) {
+        return block.getWorld().getUID() + ":" + block.getX() + ":" + block.getY() + ":" + block.getZ();
+    }
+
+    private void saveSieves() {
+        getConfig().set("placed-sieves", new java.util.ArrayList<>(sieves));
+        saveConfig();
+    }
+
+    @EventHandler
+    public void onPlace(BlockPlaceEvent event) {
+        if (event.getBlockPlaced().getWorld() != testWorld) return;
+        if (isTagged(event.getItemInHand(), "manual_sieve")) {
+            sieves.add(sieveLocation(event.getBlockPlaced()));
+            saveSieves();
+            event.getPlayer().sendMessage("§aManual Sieve placed. Hold 4 Void Dust and right-click four times.");
+        }
+    }
+
+    @EventHandler
+    public void onBreak(BlockBreakEvent event) {
+        if (!sieves.remove(sieveLocation(event.getBlock()))) return;
+        event.setDropItems(false);
+        event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), sieveItem());
+        saveSieves();
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onSieveClick(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+        Block block = event.getClickedBlock();
+        if (block == null || !sieves.contains(sieveLocation(block))) return;
+        event.setCancelled(true);
+        Player player = event.getPlayer();
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (!isTagged(held, "void_dust") || held.getAmount() < 4) {
+            sieveClicks.remove(player.getUniqueId());
+            player.sendMessage("§cHold at least 4 custom Void Dust to use this sieve.");
+            return;
+        }
+        int clicks = sieveClicks.getOrDefault(player.getUniqueId(), 0) + 1;
+        if (clicks < 4) {
+            sieveClicks.put(player.getUniqueId(), clicks);
+            player.sendActionBar("§dSieving Void Dust: " + clicks + "/4");
+            player.getWorld().playSound(block.getLocation(), org.bukkit.Sound.BLOCK_GRAVEL_HIT, 0.6f, 1.2f);
+            return;
+        }
+        sieveClicks.remove(player.getUniqueId());
+        held.setAmount(held.getAmount() - 4);
+        ItemStack reward = sieveReward();
+        player.getWorld().dropItemNaturally(block.getLocation().add(0.5, 1.0, 0.5), reward);
+        player.sendMessage("§aSieved 4 Void Dust and found " + rewardName(reward) + "§a!");
+        player.getWorld().playSound(block.getLocation(), org.bukkit.Sound.BLOCK_GRAVEL_BREAK, 0.7f, 1f);
+    }
+
+    private String rewardName(ItemStack reward) {
+        return reward.hasItemMeta() && reward.getItemMeta().hasDisplayName()
+            ? reward.getItemMeta().getDisplayName() : reward.getType().name();
+    }
+
+    private ItemStack sieveReward() {
+        int roll = rng.nextInt(100);
+        if (roll < 28) return named(Material.IRON_NUGGET, "§7Iron Fragments", 2);
+        if (roll < 50) return named(Material.COPPER_INGOT, "§6Copper Fragments (prototype)", 2);
+        if (roll < 70) return named(Material.BROWN_MUSHROOM, "§aOrganic Spores", 2);
+        if (roll < 85) return named(Material.AMETHYST_SHARD, "§dCrystal Dust", 2);
+        if (roll < 95) return new ItemStack(Material.FLINT, 2);
+        if (roll < 99) return named(Material.GOLD_NUGGET, "§6Gold Fragments", 2);
+        return named(Material.ECHO_SHARD, "§5Rift Shard", 1);
+    }
+
     private void registerRecipes() {
         // Corners of a 3x3 crafting table, not the vanilla 2x2 End Stone Bricks recipe.
         ShapedRecipe recipe = new ShapedRecipe(new NamespacedKey(this, "end_fragments_recipe"), fragments(4));
         recipe.shape("E E", "   ", "E E");
         recipe.setIngredient('E', Material.END_STONE);
         Bukkit.addRecipe(recipe);
+        ShapedRecipe sieve = new ShapedRecipe(new NamespacedKey(this, "manual_sieve_recipe"), sieveItem());
+        sieve.shape("F F", " E ", "F F");
+        sieve.setIngredient('F', new RecipeChoice.ExactChoice(fragments(1)));
+        sieve.setIngredient('E', Material.END_STONE);
+        Bukkit.addRecipe(sieve);
         // Void Dust is processed using /rbhammer, not generic End Stone Bricks.
     }
 
@@ -154,7 +252,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("rbhelp")) {
-            sender.sendMessage("§5ReverseBound §7Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Hold the Primitive Hammer and use /rbhammer to turn 4 tagged fragments into 2 Void Dust. Hold 4 Void Dust and use /rbsieve.");
+            sender.sendMessage("§5ReverseBound §7Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Hold the Primitive Hammer and use /rbhammer to turn 4 tagged fragments into 2 Void Dust. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. /rbsieve remains a test command.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbkit")) {
@@ -188,18 +286,10 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
                 player.sendMessage("§cHold at least 4 custom Void Dust in your main hand."); return true;
             }
             held.setAmount(held.getAmount() - 4);
-            int roll = rng.nextInt(100);
-            ItemStack reward;
-            if (roll < 28) reward = named(Material.IRON_NUGGET, "§7Iron Fragments", 2);
-            else if (roll < 50) reward = named(Material.COPPER_INGOT, "§6Copper Fragments (prototype)", 2);
-            else if (roll < 70) reward = named(Material.BROWN_MUSHROOM, "§aOrganic Spores", 2);
-            else if (roll < 85) reward = named(Material.AMETHYST_SHARD, "§dCrystal Dust", 2);
-            else if (roll < 95) reward = new ItemStack(Material.FLINT, 2);
-            else if (roll < 99) reward = named(Material.GOLD_NUGGET, "§6Gold Fragments", 2);
-            else reward = named(Material.ECHO_SHARD, "§5Rift Shard", 1);
+            ItemStack reward = sieveReward();
             java.util.Map<Integer, ItemStack> overflow = player.getInventory().addItem(reward);
             overflow.values().forEach(item -> player.getWorld().dropItemNaturally(player.getLocation(), item));
-            player.sendMessage("§dSieved 4 Void Dust and found " + reward.getItemMeta().getDisplayName() + "§d!");
+            player.sendMessage("§dSieved 4 Void Dust and found " + rewardName(reward) + "§d!");
             return true;
         }
         if (!command.getName().equalsIgnoreCase("rbspawn")) return false;
