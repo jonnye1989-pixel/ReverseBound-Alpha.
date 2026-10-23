@@ -16,7 +16,8 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.NamespacedKey;
-import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.inventory.ShapedRecipe;
+import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.persistence.PersistentDataType;
 import java.util.Random;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -48,7 +49,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         buildStarterCave();
         testWorld.setSpawnLocation(0, CAVE_Y, 0);
         Bukkit.getPluginManager().registerEvents(this, this);
-        getLogger().info("ReverseBound Alpha 0.1 test cave ready in reversebound_end.");
+        getLogger().info("ReverseBound Alpha 0.2.1 test cave ready in reversebound_end.");
     }
 
     private Location caveSpawn() {
@@ -111,32 +112,72 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         player.sendMessage("§aReverseBound starter kit received! Type /rbhelp.");
     }
 
+    private ItemStack fragments(int amount) {
+        ItemStack result = named(Material.END_STONE_BRICKS, "§eEnd Fragments", amount);
+        ItemMeta meta = result.getItemMeta();
+        meta.getPersistentDataContainer().set(new NamespacedKey(this, "end_fragments"), PersistentDataType.BYTE, (byte) 1);
+        result.setItemMeta(meta);
+        return result;
+    }
+
+    private boolean isTagged(ItemStack stack, String key) {
+        return stack != null && stack.hasItemMeta() &&
+                stack.getItemMeta().getPersistentDataContainer().has(new NamespacedKey(this, key), PersistentDataType.BYTE);
+    }
+
     private void registerRecipes() {
-        ItemStack fragments = named(Material.END_STONE_BRICKS, "§eEnd Fragments", 4);
-        ItemMeta fm = fragments.getItemMeta();
-        fm.getPersistentDataContainer().set(new NamespacedKey(this, "end_fragments"), PersistentDataType.BYTE, (byte) 1);
-        fragments.setItemMeta(fm);
-        ShapelessRecipe fragmentRecipe = new ShapelessRecipe(new NamespacedKey(this, "end_fragments_recipe"), fragments);
-        fragmentRecipe.addIngredient(Material.END_STONE);
-        Bukkit.addRecipe(fragmentRecipe);
-        ItemStack dust = named(Material.GUNPOWDER, "§5Void Dust", 2);
-        ItemMeta dm = dust.getItemMeta();
-        dm.getPersistentDataContainer().set(new NamespacedKey(this, "void_dust"), PersistentDataType.BYTE, (byte) 1);
-        dust.setItemMeta(dm);
-        ShapelessRecipe dustRecipe = new ShapelessRecipe(new NamespacedKey(this, "void_dust_recipe"), dust);
-        dustRecipe.addIngredient(4, Material.END_STONE_BRICKS);
-        Bukkit.addRecipe(dustRecipe);
+        // Corners of a 3x3 crafting table, not the vanilla 2x2 End Stone Bricks recipe.
+        ShapedRecipe recipe = new ShapedRecipe(new NamespacedKey(this, "end_fragments_recipe"), fragments(4));
+        recipe.shape("E E", "   ", "E E");
+        recipe.setIngredient('E', Material.END_STONE);
+        Bukkit.addRecipe(recipe);
+        // Void Dust is processed using /rbhammer, not generic End Stone Bricks.
+    }
+
+    private boolean takeFragments(Player player, int count) {
+        int available = 0;
+        for (ItemStack stack : player.getInventory().getStorageContents()) {
+            if (isTagged(stack, "end_fragments")) available += stack.getAmount();
+        }
+        if (available < count) return false;
+        int remaining = count;
+        for (ItemStack stack : player.getInventory().getStorageContents()) {
+            if (!isTagged(stack, "end_fragments")) continue;
+            int used = Math.min(remaining, stack.getAmount());
+            stack.setAmount(stack.getAmount() - used);
+            remaining -= used;
+            if (remaining == 0) break;
+        }
+        return true;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("rbhelp")) {
-            sender.sendMessage("§5ReverseBound §7Mine End Stone with your pickaxe. Craft End Fragments from End Stone, then Void Dust from 4 fragments. Use /rbsieve while holding at least 4 Void Dust. /rbkit grants a one-time starter kit.");
+            sender.sendMessage("§5ReverseBound §7Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Hold the Primitive Hammer and use /rbhammer to turn 4 tagged fragments into 2 Void Dust. Hold 4 Void Dust and use /rbsieve.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbkit")) {
             if (!(sender instanceof Player player)) { sender.sendMessage("Players only."); return true; }
             giveStarter(player);
+            return true;
+        }
+        if (command.getName().equalsIgnoreCase("rbhammer")) {
+            if (!(sender instanceof Player player)) { sender.sendMessage("Players only."); return true; }
+            if (player.getWorld() != testWorld) { player.sendMessage("§cHammer processing is only available in the ReverseBound test world."); return true; }
+            ItemStack hammer = player.getInventory().getItemInMainHand();
+            if (hammer.getType() != Material.WOODEN_HOE || !hammer.hasItemMeta() ||
+                    !"§dPrimitive Hammer (prototype)".equals(hammer.getItemMeta().getDisplayName())) {
+                player.sendMessage("§cHold your Primitive Hammer in your main hand."); return true;
+            }
+            if (!takeFragments(player, 4)) { player.sendMessage("§cYou need 4 custom End Fragments (not vanilla End Stone Bricks)."); return true; }
+            ItemStack dust = named(Material.GUNPOWDER, "§5Void Dust", 2);
+            ItemMeta meta = dust.getItemMeta();
+            meta.getPersistentDataContainer().set(new NamespacedKey(this, "void_dust"), PersistentDataType.BYTE, (byte) 1);
+            dust.setItemMeta(meta);
+            java.util.Map<Integer, ItemStack> overflow = player.getInventory().addItem(dust);
+            overflow.values().forEach(item -> player.getWorld().dropItemNaturally(player.getLocation(), item));
+            player.sendMessage("§aProcessed 4 End Fragments into 2 Void Dust.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbsieve")) {

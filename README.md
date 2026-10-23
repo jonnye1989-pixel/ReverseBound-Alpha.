@@ -1,7 +1,17 @@
-# ReverseBound Alpha 0.2 (source, not compiled)
+# ReverseBound Alpha 0.2.1 — crafting hotfix
 
-Paper 1.21.4 / Java 21. Upload the contents of this folder to the root of your GitHub repository. GitHub Actions builds `ReverseBound-Alpha-0.2.jar`. Stop server, back up, remove old 0.1 JAR, upload new JAR, start.
+For Paper 1.21.4 / Java 21. This is source code, not a compiled JAR. Build using the existing GitHub Actions workflow.
 
-Commands: `/rbspawn` (operator), `/rbkit` (one-time per player), `/rbhelp`, `/rbsieve`. Craft 4 End Fragments from 1 End Stone, then 2 Void Dust from 4 End Fragments. Hold 4 Void Dust and use `/rbsieve`. Sieve is a command-based prototype, not a machine.
+## Changes
+- Four End Stone blocks in the four corners of a **3x3 crafting table** give four tagged End Fragments. Vanilla 2x2 End Stone Bricks remain untouched.
+- Hold the **Primitive Hammer (prototype)** in your main hand and run `/rbhammer` to convert four custom End Fragments into two tagged Void Dust.
+- Hold at least four tagged Void Dust and run `/rbsieve` to get an early resource roll.
+- Ordinary End Stone Bricks cannot be used as End Fragments.
 
-Known prototype limitations: recipes use base material types, so ordinary End Stone Bricks can substitute for custom End Fragments; resource drops are prototypes; starter hammer and journal are cosmetic placeholders; `/rbkit` can be used outside the custom world; not ready for public play. This project has not been compiled or tested in this environment.
+## Safe installation
+Stop server, back up worlds and plugins, remove old Alpha 0.2 JAR (keep local copy), upload newly built Alpha 0.2.1 JAR, then start. Do not delete the `reversebound_end` world or player data.
+
+## Test
+`/plugins`, `/rbspawn`, craft End Fragments using 3x3 corners, `/rbhammer` holding hammer, `/rbsieve` holding 4 Void Dust. `/rbkit` is one-time; players who already claimed it keep their existing items.
+
+**Known limitations:** Test-only shared world, prototype tools and resource items, no full machine interface, and no survival progression balance yet. Not runtime tested on TickHosting.

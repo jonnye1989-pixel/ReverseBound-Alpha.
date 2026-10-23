@@ -1,5 +1,5 @@
 name: ReverseBoundAlpha
-version: '0.2.0'
+version: '0.2.1'
 main: com.reversebound.alpha.ReverseBoundAlpha
 api-version: '1.21.4'
 author: ReverseBound
@@ -9,6 +9,8 @@ commands:
     description: Claim a one-time starter kit
   rbhelp:
     description: Show alpha gameplay instructions
+  rbhammer:
+    description: Process four custom End Fragments with your Primitive Hammer
   rbsieve:
     description: Process four Void Dust held in the main hand
   rbspawn:
