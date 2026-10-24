@@ -20,6 +20,8 @@ import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.CraftItemEvent;
+import org.bukkit.event.inventory.FurnaceExtractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.meta.BookMeta;
@@ -51,6 +53,78 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     private final Set<String> hammerStations = new HashSet<>();
     private final Map<UUID, Integer> sieveClicks = new HashMap<>();
 
+    private static final String[] QUEST_NAMES = {"First Fragments", "Breaking It Down", "The Hammering Age", "Hidden Within", "A Spark of Crystal", "A Stronger Tool", "Forged in the Void", "The First Flame", "Metal From Nothing", "Beyond Survival"};
+    private static final String[] QUEST_GOALS = {"Mine 16 End Stone", "Craft 16 End Fragments", "Hammer 16 End Fragments", "Sieve 16 Void Dust", "Craft 2 Resonant Crystals", "Craft 1 Primitive Pickaxe", "Place 1 Voidforge", "Craft 8 Void Briquettes", "Smelt 1 raw metal", "Smelt 8 raw metals"};
+    private static final int[] QUEST_TARGETS = {16,16,16,16,2,1,1,8,1,8};
+    private static final int[] QUEST_RP = {5,5,5,10,10,10,15,10,15,20};
+    private String questPath(Player p) { return "quests." + p.getUniqueId(); }
+    private int questStage(Player p) { return Math.min(10, Math.max(0, getConfig().getInt(questPath(p)+".stage",0))); }
+    private int questProgress(Player p) { return getConfig().getInt(questPath(p)+".progress",0); }
+    private int researchPoints(Player p) { return getConfig().getInt(questPath(p)+".research-points",0); }
+    private void questEvent(Player p, int stage, int amount) {
+        if (p.getWorld() != testWorld || p.getGameMode() == GameMode.CREATIVE || questStage(p) != stage || amount <= 0) return;
+        int next = Math.min(QUEST_TARGETS[stage], questProgress(p)+amount);
+        getConfig().set(questPath(p)+".progress", next);
+        saveConfig();
+        if (next == QUEST_TARGETS[stage]) p.sendMessage("§aQuest ready to claim: §e"+QUEST_NAMES[stage]+" §7— open /rbjournal");
+        else p.sendActionBar("§d"+QUEST_NAMES[stage]+" §7"+next+"/"+QUEST_TARGETS[stage]);
+    }
+    private void giveReward(Player p, ItemStack item) {
+        p.getInventory().addItem(item).values().forEach(extra -> p.getWorld().dropItemNaturally(p.getLocation(),extra));
+    }
+    private void claimQuest(Player p) {
+        int stage = questStage(p);
+        if (stage >= 10) { p.sendMessage("§aAll Alpha 0.8 quests complete!"); return; }
+        if (questProgress(p) < QUEST_TARGETS[stage]) { p.sendMessage("§eComplete the objective before claiming."); return; }
+        getConfig().set(questPath(p)+".stage",stage+1);
+        getConfig().set(questPath(p)+".progress",0);
+        getConfig().set(questPath(p)+".research-points",researchPoints(p)+QUEST_RP[stage]);
+        saveConfig();
+        switch(stage) {
+            case 0 -> giveReward(p,fragments(8));
+            case 1 -> giveReward(p,voidDust(4));
+            case 2 -> giveReward(p,voidDust(8));
+            case 3 -> giveReward(p,resource(Material.BROWN_MUSHROOM,"§aOrganic Spores","organic_spores",4));
+            case 4 -> giveReward(p,resource(Material.AMETHYST_SHARD,"§dCrystal Dust","crystal_dust",4));
+            case 5 -> giveReward(p,fragments(8));
+            case 6 -> giveReward(p,named(Material.CHARCOAL,"§6Void Briquette",4));
+            case 7 -> giveReward(p,resource(Material.BROWN_MUSHROOM,"§aOrganic Spores","organic_spores",4));
+            case 8 -> giveReward(p,new ItemStack(Material.RAW_IRON,4));
+            case 9 -> giveReward(p,resource(Material.CHEST,"§dVoid Lucky Block (preview)","void_lucky_block",1));
+        }
+        p.sendMessage("§aQuest claimed: §e"+QUEST_NAMES[stage]+" §7+"+QUEST_RP[stage]+" Research Points!");
+        if (stage == 9) p.sendMessage("§5End Stone Age chapter complete! More chapters are coming.");
+    }
+    private void showQuestJournal(Player p) {
+        Inventory menu = Bukkit.createInventory(null,27,"§5ReverseBound • Quest Journal");
+        int stage=questStage(p);
+        for (int i=0;i<10;i++) {
+            String status=i<stage?"§aCompleted":i==stage?"§eActive":"§8Locked";
+            String progress=i==stage?"§7Progress: "+questProgress(p)+"/"+QUEST_TARGETS[i]:"§7"+QUEST_GOALS[i];
+            menu.setItem(i+9,menuIcon(i<stage?Material.LIME_DYE:i==stage?Material.WRITABLE_BOOK:Material.GRAY_DYE,"§d"+(i+1)+". "+QUEST_NAMES[i],"§7"+QUEST_GOALS[i],progress,status,"§bReward: "+QUEST_RP[i]+" RP"));
+        }
+        menu.setItem(22,menuIcon(Material.EMERALD,"§aClaim current quest",stage>=10?"§aChapter completed": "§7Click when objective is complete"));
+        menu.setItem(26,menuIcon(Material.EXPERIENCE_BOTTLE,"§bResearch Points: "+researchPoints(p),"§7Research unlocks arrive in a later update"));
+        journalReaders.add(p.getUniqueId());
+        p.openInventory(menu);
+    }
+    @EventHandler
+    public void onQuestCraft(CraftItemEvent e) {
+        if (!(e.getWhoClicked() instanceof Player p) || e.isCancelled()) return;
+        ItemStack result=e.getRecipe().getResult();
+        // Shift-crafting is not counted here to avoid awarding unverified amounts.
+        if (e.isShiftClick()) return;
+        if (isTagged(result,"end_fragments")) questEvent(p,1,result.getAmount());
+        if (isTagged(result,"resonant_crystal")) questEvent(p,4,result.getAmount());
+        if (isTagged(result,"primitive_pickaxe")) questEvent(p,5,1);
+        if (result.getType()==Material.CHARCOAL && "§6Void Briquette".equals(result.getItemMeta()!=null?result.getItemMeta().getDisplayName():"")) questEvent(p,7,result.getAmount());
+    }
+    @EventHandler
+    public void onQuestSmelt(FurnaceExtractEvent e) {
+        if (e.getItemType()==Material.IRON_INGOT || e.getItemType()==Material.COPPER_INGOT || e.getItemType()==Material.GOLD_INGOT) {
+            questEvent(e.getPlayer(),8,e.getItemAmount()); questEvent(e.getPlayer(),9,e.getItemAmount());
+        }
+    }
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -74,7 +148,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         buildStarterCave();
         testWorld.setSpawnLocation(0, CAVE_Y, 0);
         Bukkit.getPluginManager().registerEvents(this, this);
-        getLogger().info("ReverseBound Alpha 0.7 journal and interface progression ready in reversebound_end.");
+        getLogger().info("ReverseBound Alpha 0.8 quest tracking ready in reversebound_end.");
     }
 
     private Location caveSpawn() {
@@ -107,7 +181,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             player.teleport(caveSpawn());
             player.setGameMode(GameMode.SURVIVAL);
             giveStarter(player);
-            player.sendMessage("§5Welcome to ReverseBound Alpha 0.7! §7Use /rbhelp to begin.");
+            player.sendMessage("§5Welcome to ReverseBound Alpha 0.8! §7Use /rbhelp to begin.");
         });
     }
 
@@ -194,7 +268,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         menu.setItem(14, menuIcon(Material.AMETHYST_SHARD, "§d5. Resonant Crystal", "§7Craft using four Crystal Dust."));
         menu.setItem(15, menuIcon(Material.FURNACE, "§5 6. Voidforge", "§7Eight End Stone around one", "§7Resonant Crystal. Smelts raw metals."));
         menu.setItem(16, menuIcon(Material.CHARCOAL, "§6Fuel: Void Briquettes", "§7Four Organic Spores yield two briquettes."));
-        menu.setItem(22, menuIcon(Material.BOOK, "§aCurrent stage: End Stone Age", "§7Next milestone: smelt your first metal.", "§8Alpha 0.7 preview — automatic quests", "§8and unlock tracking are coming later."));
+        menu.setItem(22, menuIcon(Material.BOOK, "§aChapter 1: End Stone Age", "§7Click to view tracked quests", "§7and claim Research Points."));
         journalReaders.add(player.getUniqueId());
         player.openInventory(menu);
     }
@@ -202,11 +276,19 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     @EventHandler
     public void onJournalClick(InventoryClickEvent event) {
         if (!journalReaders.contains(event.getWhoClicked().getUniqueId())) return;
-        if (!"§5ReverseBound • Field Journal".equals(event.getView().getTitle())) {
+        if (!"§5ReverseBound • Field Journal".equals(event.getView().getTitle()) && !"§5ReverseBound • Quest Journal".equals(event.getView().getTitle())) {
             journalReaders.remove(event.getWhoClicked().getUniqueId());
             return;
         }
-        if (event.getRawSlot() < event.getView().getTopInventory().getSize()) event.setCancelled(true);
+        if (event.getRawSlot() < event.getView().getTopInventory().getSize()) {
+            event.setCancelled(true);
+            if (!(event.getWhoClicked() instanceof Player p)) return;
+            int slot=event.getRawSlot();
+            if ("§5ReverseBound • Field Journal".equals(event.getView().getTitle()) && slot==22) showQuestJournal(p);
+            else if ("§5ReverseBound • Quest Journal".equals(event.getView().getTitle()) && slot==22) {
+                claimQuest(p); showQuestJournal(p);
+            }
+        }
     }
 
     @EventHandler
@@ -274,6 +356,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             saveStations();
             event.getPlayer().sendMessage("§dHammering Station placed! Hold your Primitive Hammer and right-click it. Sneak-right-click for batches.");
         }
+        if (isTagged(event.getItemInHand(), "voidforge")) questEvent(event.getPlayer(),6,1);
         if (isTagged(event.getItemInHand(), "manual_sieve")) {
             sieves.add(sieveLocation(event.getBlockPlaced()));
             saveSieves();
@@ -283,6 +366,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onBreak(BlockBreakEvent event) {
+        if (!event.isCancelled() && event.getBlock().getType()==Material.END_STONE) questEvent(event.getPlayer(),0,1);
         String key = sieveLocation(event.getBlock());
         if (hammerStations.remove(key)) {
             event.setDropItems(false);
@@ -316,6 +400,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             player.sendActionBar("§cYou need at least 4 custom End Fragments.");
             return;
         }
+        questEvent(player,2,batches*4);
         ItemStack dust = voidDust(batches * 2);
         java.util.Map<Integer, ItemStack> overflow = player.getInventory().addItem(dust);
         overflow.values().forEach(item -> player.getWorld().dropItemNaturally(player.getLocation(), item));
@@ -348,6 +433,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         }
         sieveClicks.remove(player.getUniqueId());
         held.setAmount(held.getAmount() - 4);
+        questEvent(player,3,4);
         ItemStack reward = sieveReward();
         player.getWorld().dropItemNaturally(block.getLocation().add(0.5, 1.0, 0.5), reward);
         player.sendMessage("§aSieved 4 Void Dust and found " + rewardName(reward) + "§a!");
@@ -454,13 +540,21 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (command.getName().equalsIgnoreCase("rbquests")) {
+            if (!(sender instanceof Player player)) { sender.sendMessage("Players only."); return true; }
+            showQuestJournal(player); return true;
+        }
         if (command.getName().equalsIgnoreCase("rbjournal")) {
             if (!(sender instanceof Player player)) { sender.sendMessage("Players only."); return true; }
             openJournal(player);
             return true;
         }
+        if (command.getName().equalsIgnoreCase("rbrp")) {
+            if (!(sender instanceof Player player)) { sender.sendMessage("Players only."); return true; }
+            player.sendMessage("§bResearch Points: "+researchPoints(player)); return true;
+        }
         if (command.getName().equalsIgnoreCase("rbhelp")) {
-            sender.sendMessage("§5ReverseBound §7Right-click your Field Journal or use /rbjournal for the in-game guide. Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Craft a Void Hammering Station with custom End Fragments in all 4 corners and End Stone in the other 5 slots. Place it, hold the Primitive Hammer and right-click to turn 4 End Fragments into 2 Void Dust. Sneak-right-click to process up to 32 batches. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. Craft a renewable Primitive Pickaxe with 3 custom End Fragments across the top and 2 End Stone in the center column. Craft a Voidforge with 8 End Stone surrounding 1 custom Resonant Crystal. Voidforge smelts like a furnace using Void Briquettes as fuel. /rbsieve remains a test command.");
+            sender.sendMessage("§5ReverseBound Alpha 0.8 §7Use /rbquests for tracked quests and /rbrp for Research Points. Right-click your Field Journal or use /rbjournal for the in-game guide. Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Craft a Void Hammering Station with custom End Fragments in all 4 corners and End Stone in the other 5 slots. Place it, hold the Primitive Hammer and right-click to turn 4 End Fragments into 2 Void Dust. Sneak-right-click to process up to 32 batches. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. Craft a renewable Primitive Pickaxe with 3 custom End Fragments across the top and 2 End Stone in the center column. Craft a Voidforge with 8 End Stone surrounding 1 custom Resonant Crystal. Voidforge smelts like a furnace using Void Briquettes as fuel. /rbsieve remains a test command.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbkit")) {

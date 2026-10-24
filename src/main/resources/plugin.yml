@@ -1,10 +1,14 @@
 name: ReverseBoundAlpha
-version: '0.7'
+version: '0.8'
 main: com.reversebound.alpha.ReverseBoundAlpha
 api-version: '1.21.4'
 author: ReverseBound
 load: POSTWORLD
 commands:
+  rbquests:
+    description: View and claim chapter quests
+  rbrp:
+    description: View your Research Points
   rbjournal:
     description: Open the End Stone Age Field Journal
   rbkit:
