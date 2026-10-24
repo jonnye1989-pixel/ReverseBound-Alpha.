@@ -1,5 +1,5 @@
 name: ReverseBoundAlpha
-version: '0.8'
+version: '0.9'
 main: com.reversebound.alpha.ReverseBoundAlpha
 api-version: '1.21.4'
 author: ReverseBound

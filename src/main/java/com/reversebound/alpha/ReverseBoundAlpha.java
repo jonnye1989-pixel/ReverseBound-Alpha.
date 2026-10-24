@@ -10,6 +10,13 @@ import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.ItemDisplay;
+import org.bukkit.entity.Entity;
+import org.bukkit.event.world.ChunkLoadEvent;
+import org.bukkit.event.world.ChunkUnloadEvent;
+import org.bukkit.util.Transformation;
+import org.joml.Vector3f;
+import org.joml.Quaternionf;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -148,7 +155,9 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         buildStarterCave();
         testWorld.setSpawnLocation(0, CAVE_Y, 0);
         Bukkit.getPluginManager().registerEvents(this, this);
-        getLogger().info("ReverseBound Alpha 0.8 quest tracking ready in reversebound_end.");
+        // Restore visuals for stations in chunks already loaded at startup.
+        for (org.bukkit.Chunk chunk : testWorld.getLoadedChunks()) restoreStationDisplays(chunk);
+        getLogger().info("ReverseBound Alpha 0.9 quest tracking ready in reversebound_end.");
     }
 
     private Location caveSpawn() {
@@ -181,7 +190,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             player.teleport(caveSpawn());
             player.setGameMode(GameMode.SURVIVAL);
             giveStarter(player);
-            player.sendMessage("§5Welcome to ReverseBound Alpha 0.8! §7Use /rbhelp to begin.");
+            player.sendMessage("§5Welcome to ReverseBound Alpha 0.9! §7Use /rbhelp to begin.");
         });
     }
 
@@ -322,7 +331,63 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     }
 
     private ItemStack hammerStationItem() {
-        return resource(Material.SMITHING_TABLE, "§5Void Hammering Station", "hammer_station", 1);
+        ItemStack item = resource(Material.SMITHING_TABLE, "§5Void Hammering Station", "hammer_station", 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setItemModel(new NamespacedKey("reversebound", "hammering_station"));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private NamespacedKey stationDisplayKey() { return new NamespacedKey(this, "station_display"); }
+
+    private void removeStationDisplay(Block block) {
+        Location center = block.getLocation().add(0.5, 0.5, 0.5);
+        for (Entity entity : block.getWorld().getNearbyEntities(center, 1.25, 1.25, 1.25)) {
+            if (entity instanceof ItemDisplay && entity.getPersistentDataContainer()
+                    .has(stationDisplayKey(), PersistentDataType.STRING)) {
+                String stored = entity.getPersistentDataContainer().get(stationDisplayKey(), PersistentDataType.STRING);
+                if (sieveLocation(block).equals(stored)) entity.remove();
+            }
+        }
+    }
+
+    private void spawnStationDisplay(Block block) {
+        if (!hammerStations.contains(sieveLocation(block))) return;
+        removeStationDisplay(block);
+        // The display is a visual; the barrier remains the solid interaction block.
+        Location location = block.getLocation().add(0.5, 0.5, 0.5);
+        block.getWorld().spawn(location, ItemDisplay.class, display -> {
+            display.setItemStack(hammerStationItem());
+            display.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
+            display.setTransformation(new Transformation(
+                new Vector3f(0f, 0f, 0f), new Quaternionf(),
+                new Vector3f(1.0f, 1.0f, 1.0f), new Quaternionf()));
+            display.getPersistentDataContainer().set(stationDisplayKey(), PersistentDataType.STRING, sieveLocation(block));
+            display.setPersistent(true);
+        });
+    }
+
+    private void restoreStationDisplays(org.bukkit.Chunk chunk) {
+        if (testWorld == null || chunk.getWorld() != testWorld) return;
+        for (String key : new HashSet<>(hammerStations)) {
+            String[] parts = key.split(":");
+            if (parts.length != 4 || !parts[0].equals(testWorld.getUID().toString())) continue;
+            try {
+                int x = Integer.parseInt(parts[1]), y = Integer.parseInt(parts[2]), z = Integer.parseInt(parts[3]);
+                if ((x >> 4) != chunk.getX() || (z >> 4) != chunk.getZ()) continue;
+                Block block = testWorld.getBlockAt(x, y, z);
+                if (block.getType() == Material.SMITHING_TABLE || block.getType() == Material.BARRIER) {
+                    block.setType(Material.BARRIER, false);
+                    spawnStationDisplay(block);
+                }
+            } catch (NumberFormatException ignored) { }
+        }
+    }
+
+    @EventHandler
+    public void onStationChunkLoad(ChunkLoadEvent event) {
+        if (event.getWorld() == testWorld)
+            Bukkit.getScheduler().runTask(this, () -> restoreStationDisplays(event.getChunk()));
     }
 
     private boolean isPrimitiveHammer(ItemStack item) {
@@ -354,6 +419,13 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
         if (isTagged(event.getItemInHand(), "hammer_station")) {
             hammerStations.add(sieveLocation(event.getBlockPlaced()));
             saveStations();
+            Block placed = event.getBlockPlaced();
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (hammerStations.contains(sieveLocation(placed))) {
+                    placed.setType(Material.BARRIER, false);
+                    spawnStationDisplay(placed);
+                }
+            });
             event.getPlayer().sendMessage("§dHammering Station placed! Hold your Primitive Hammer and right-click it. Sneak-right-click for batches.");
         }
         if (isTagged(event.getItemInHand(), "voidforge")) questEvent(event.getPlayer(),6,1);
@@ -368,14 +440,16 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
     public void onBreak(BlockBreakEvent event) {
         if (!event.isCancelled() && event.getBlock().getType()==Material.END_STONE) questEvent(event.getPlayer(),0,1);
         String key = sieveLocation(event.getBlock());
-        if (hammerStations.remove(key)) {
+        if (hammerStations.contains(key) && !event.isCancelled()) {
+            hammerStations.remove(key);
+            removeStationDisplay(event.getBlock());
             event.setDropItems(false);
             if (event.getPlayer().getGameMode() != GameMode.CREATIVE)
                 event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), hammerStationItem());
             saveStations();
             return;
         }
-        if (sieves.remove(key)) {
+        if (!event.isCancelled() && sieves.remove(key)) {
             event.setDropItems(false);
             if (event.getPlayer().getGameMode() != GameMode.CREATIVE)
                 event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), sieveItem());
@@ -554,7 +628,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             player.sendMessage("§bResearch Points: "+researchPoints(player)); return true;
         }
         if (command.getName().equalsIgnoreCase("rbhelp")) {
-            sender.sendMessage("§5ReverseBound Alpha 0.8 §7Use /rbquests for tracked quests and /rbrp for Research Points. Right-click your Field Journal or use /rbjournal for the in-game guide. Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Craft a Void Hammering Station with custom End Fragments in all 4 corners and End Stone in the other 5 slots. Place it, hold the Primitive Hammer and right-click to turn 4 End Fragments into 2 Void Dust. Sneak-right-click to process up to 32 batches. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. Craft a renewable Primitive Pickaxe with 3 custom End Fragments across the top and 2 End Stone in the center column. Craft a Voidforge with 8 End Stone surrounding 1 custom Resonant Crystal. Voidforge smelts like a furnace using Void Briquettes as fuel. /rbsieve remains a test command.");
+            sender.sendMessage("§5ReverseBound Alpha 0.9 §7Use /rbquests for tracked quests and /rbrp for Research Points. Right-click your Field Journal or use /rbjournal for the in-game guide. Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Craft a Void Hammering Station with custom End Fragments in all 4 corners and End Stone in the other 5 slots. Place it, hold the Primitive Hammer and right-click to turn 4 End Fragments into 2 Void Dust. Sneak-right-click to process up to 32 batches. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. Craft a renewable Primitive Pickaxe with 3 custom End Fragments across the top and 2 End Stone in the center column. Craft a Voidforge with 8 End Stone surrounding 1 custom Resonant Crystal. Voidforge smelts like a furnace using Void Briquettes as fuel. /rbsieve remains a test command.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbkit")) {
