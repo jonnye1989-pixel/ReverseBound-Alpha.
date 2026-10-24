@@ -361,7 +361,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             display.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
             display.setTransformation(new Transformation(
                 new Vector3f(0f, 0f, 0f), new Quaternionf(),
-                new Vector3f(1.0f, 1.0f, 1.0f), new Quaternionf()));
+                new Vector3f(1.45f, 1.45f, 1.45f), new Quaternionf()));
             display.getPersistentDataContainer().set(stationDisplayKey(), PersistentDataType.STRING, sieveLocation(block));
             display.setPersistent(true);
         });
@@ -455,6 +455,32 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
                 event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), sieveItem());
             saveSieves();
         }
+    }
+
+    // Barrier blocks are unbreakable in Survival, so handle a pickaxe hit explicitly.
+    // Dispatch a BlockBreakEvent first so cave-protection plugins can cancel it.
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onStationPickaxeHit(PlayerInteractEvent event) {
+        if (event.getAction() != Action.LEFT_CLICK_BLOCK ||
+                event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+        Block block = event.getClickedBlock();
+        if (block == null || block.getType() != Material.BARRIER ||
+                !hammerStations.contains(sieveLocation(block))) return;
+        ItemStack tool = event.getPlayer().getInventory().getItemInMainHand();
+        if (tool == null || !tool.getType().name().endsWith("_PICKAXE")) {
+            event.getPlayer().sendActionBar("§eUse a pickaxe to collect the Hammering Station.");
+            return;
+        }
+        event.setCancelled(true);
+        BlockBreakEvent breakEvent = new BlockBreakEvent(block, event.getPlayer());
+        Bukkit.getPluginManager().callEvent(breakEvent);
+        if (breakEvent.isCancelled()) {
+            event.getPlayer().sendActionBar("§cYou cannot break this station here.");
+            return;
+        }
+        // onBreak handles item return, display removal, and saving the station list.
+        block.setType(Material.AIR, false);
+        event.getPlayer().sendActionBar("§aHammering Station collected.");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -628,7 +654,7 @@ public final class ReverseBoundAlpha extends JavaPlugin implements Listener {
             player.sendMessage("§bResearch Points: "+researchPoints(player)); return true;
         }
         if (command.getName().equalsIgnoreCase("rbhelp")) {
-            sender.sendMessage("§5ReverseBound Alpha 0.9 §7Use /rbquests for tracked quests and /rbrp for Research Points. Right-click your Field Journal or use /rbjournal for the in-game guide. Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Craft a Void Hammering Station with custom End Fragments in all 4 corners and End Stone in the other 5 slots. Place it, hold the Primitive Hammer and right-click to turn 4 End Fragments into 2 Void Dust. Sneak-right-click to process up to 32 batches. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. Craft a renewable Primitive Pickaxe with 3 custom End Fragments across the top and 2 End Stone in the center column. Craft a Voidforge with 8 End Stone surrounding 1 custom Resonant Crystal. Voidforge smelts like a furnace using Void Briquettes as fuel. /rbsieve remains a test command.");
+            sender.sendMessage("§5ReverseBound Alpha 0.10 §7Use /rbquests for tracked quests and /rbrp for Research Points. Right-click your Field Journal or use /rbjournal for the in-game guide. Mine End Stone. Put 4 End Stone in the four CORNERS of a 3x3 crafting table to make 4 End Fragments. Craft a Void Hammering Station with custom End Fragments in all 4 corners and End Stone in the other 5 slots. Place it, hold the Primitive Hammer and right-click to turn 4 End Fragments into 2 Void Dust. Sneak-right-click to process up to 32 batches. Craft a Manual Sieve with custom End Fragments in the 4 corners and End Stone in the center. Place it and right-click 4 times holding 4 Void Dust. Combine 4 matching fragments into Raw Iron, Raw Copper or Raw Gold. Combine 4 Organic Spores into 2 Void Briquettes (charcoal fuel); 4 Crystal Dust into 1 Resonant Crystal. Craft a renewable Primitive Pickaxe with 3 custom End Fragments across the top and 2 End Stone in the center column. Craft a Voidforge with 8 End Stone surrounding 1 custom Resonant Crystal. Voidforge smelts like a furnace using Void Briquettes as fuel. /rbsieve remains a test command.");
             return true;
         }
         if (command.getName().equalsIgnoreCase("rbkit")) {
